@@ -70,8 +70,8 @@ def main():
     parser.add_argument("--workdir", default=os.environ.get("PWD", os.getcwd()))
     parser.add_argument("--mount-root", default="/mnt/rpi-root")
     parser.add_argument("--mount-boot", default="/mnt/rpi-boot")
-    parser.add_argument("--project-src", default="/home/tute/Documents/tmc5130")
-    parser.add_argument("--project-dst", default="/opt/tmc5130")
+    parser.add_argument("--project-src", required=True)
+    parser.add_argument("--project-dst", default="/opt/build")
     parser.add_argument("--build-script", default="build-rpi.sh")
     args = parser.parse_args()
 
@@ -89,7 +89,7 @@ def main():
         bind_mounts(mnt_root)
         project_src = pathlib.Path(args.project_src).expanduser().resolve()
         project_dst = bind_project(project_src, mnt_root, args.project_dst)
-        run(["chroot", str(mnt_root), "/bin/zsh"])
+        run(["chroot", str(mnt_root), "/bin/bash"])
     finally:
         if 'project_dst' in locals() and pathlib.Path(project_dst).exists():
             run(["umount", str(project_dst)], check=False)
