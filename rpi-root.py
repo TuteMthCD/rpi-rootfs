@@ -55,6 +55,8 @@ def mount_partitions(loop_dev, mnt_root, mnt_boot):
 def bind_mounts(mnt_root):
     for target in ("dev", "proc", "sys", "run"):
         run(["mount", "--bind", f"/{target}", str(mnt_root / target)])
+    # Ensure devpts is available inside chroot for apt and PTYs.
+    run(["mount", "-t", "devpts", "devpts", str(mnt_root / "dev/pts")])
 
 def copy_project(project_src, mnt_root, project_dst):
     if not project_src.exists():
@@ -104,6 +106,10 @@ def main():
             copy_project(project_src, mnt_root, args.project_dst)
         run(["chroot", str(mnt_root), "/bin/bash"])
     finally:
+        # Unmount devpts first to avoid busy /dev.
+        devpts_path = pathlib.Path(args.mount_root) / "dev/pts"
+        if devpts_path.is_mount():
+            run(["umount", str(devpts_path)], check=False)
         for target in ("run", "sys", "proc", "dev"):
             mount_path = pathlib.Path(args.mount_root) / target
             if mount_path.is_mount():
