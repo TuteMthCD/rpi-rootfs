@@ -4,6 +4,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import shutil
 
 
 def run(cmd, check=True, **kwargs):
@@ -55,14 +56,22 @@ def bind_mounts(mnt_root):
     for target in ("dev", "proc", "sys", "run"):
         run(["mount", "--bind", f"/{target}", str(mnt_root / target)])
 
-def bind_project(project_src, mnt_root, project_dst):
+def copy_project(project_src, mnt_root, project_dst):
     if not project_src.exists():
         raise FileNotFoundError(f"Proyecto no encontrado: {project_src}")
     dst_inside = mnt_root / project_dst.lstrip('/')
+    if dst_inside.exists():
+        shutil.rmtree(dst_inside)
     dst_inside.parent.mkdir(parents=True, exist_ok=True)
-    dst_inside.mkdir(parents=True, exist_ok=True)
-    run(["mount", "--bind", str(project_src), str(dst_inside)])
+    shutil.copytree(project_src, dst_inside, symlinks=True)
     return dst_inside
+
+def find_qemu_aarch64():
+    for candidate in ("qemu-aarch64-static", "qemu-aarch64"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    return None
 
 def main():
     parser = argparse.ArgumentParser()
@@ -70,7 +79,7 @@ def main():
     parser.add_argument("--workdir", default=os.environ.get("PWD", os.getcwd()))
     parser.add_argument("--mount-root", default="/mnt/rpi-root")
     parser.add_argument("--mount-boot", default="/mnt/rpi-boot")
-    parser.add_argument("--project-src", required=True)
+    parser.add_argument("--project-src")
     parser.add_argument("--project-dst", default="/opt/build")
     parser.add_argument("--build-script", default="build-rpi.sh")
     args = parser.parse_args()
@@ -85,14 +94,16 @@ def main():
         mnt_root = pathlib.Path(args.mount_root)
         mnt_boot = pathlib.Path(args.mount_boot)
         mount_partitions(loop_dev, mnt_root, mnt_boot)
-        run(["cp", "/usr/bin/qemu-aarch64-static", str(mnt_root / "usr/bin/")])
+        qemu_bin = find_qemu_aarch64()
+        if not qemu_bin:
+            sys.exit("No se encontro qemu-aarch64 (-static). Instala qemu-user o qemu-user-static.")
+        run(["cp", qemu_bin, str(mnt_root / "usr/bin/")])
         bind_mounts(mnt_root)
-        project_src = pathlib.Path(args.project_src).expanduser().resolve()
-        project_dst = bind_project(project_src, mnt_root, args.project_dst)
+        if args.project_src:
+            project_src = pathlib.Path(args.project_src).expanduser().resolve()
+            copy_project(project_src, mnt_root, args.project_dst)
         run(["chroot", str(mnt_root), "/bin/bash"])
     finally:
-        if 'project_dst' in locals() and pathlib.Path(project_dst).exists():
-            run(["umount", str(project_dst)], check=False)
         for target in ("run", "sys", "proc", "dev"):
             mount_path = pathlib.Path(args.mount_root) / target
             if mount_path.is_mount():
